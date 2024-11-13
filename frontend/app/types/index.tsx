@@ -1,3 +1,5 @@
+// frontend/app/types/index.tsx
+
 export interface WordFrequency {
     word: string;
     frequency: number;

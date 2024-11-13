@@ -8,42 +8,75 @@ import string
 import langdetect
 import csv
 from io import StringIO
+from nltk.corpus import stopwords
 
 app = Flask(__name__)
 CORS(app)
 
-# Default stop words for different languages
-STOP_WORDS = {
-    'en': {'the', 'be', 'to', 'of', 'and', 'a', 'in', 'that', 'have', 'for', 'it', 'with', 'is', 'on', 'you', 'this'},
-    'es': {'el', 'la', 'de', 'que', 'y', 'en', 'un', 'ser', 'por'},
-    'fr': {'le', 'la', 'de', 'et', 'en', 'un', 'une', 'que'}
+# Language mapping between langdetect and NLTK
+LANG_MAPPING = {
+    'en': 'english',
+    'es': 'spanish',
+    'fr': 'french',
+    'de': 'german',
+    'it': 'italian',
+    'pt': 'portuguese',
+    'nl': 'dutch',
+    'da': 'danish',
+    'fi': 'finnish',
+    'hu': 'hungarian',
+    'no': 'norwegian',
+    'ru': 'russian',
+    'sv': 'swedish',
+    'tr': 'turkish'
 }
 
-def detect_language(text):
+def get_stopwords(lang: str) -> set:
+    """
+    Get stopwords for a given language from NLTK
+    """
     try:
-        return langdetect.detect(text)
-    except:
-        return 'en'  # Default to English if detection fails
+        nltk_lang = LANG_MAPPING.get(lang, 'english')  # Default to English if language not supported
+        return set(stopwords.words(nltk_lang))
+    except Exception as e:
+        print(f"Error loading stopwords for {lang}: {str(e)}")
+        # Return English stopwords as fallback
+        return set(stopwords.words('english'))
 
-def clean_and_count_words(text, stop_words, num_results):
+def detect_language(text):
+    """
+    Detect the language of the text
+    """
+    try:
+        detected_lang = langdetect.detect(text)
+        # Only return detected language if we have stopwords for it
+        return detected_lang if detected_lang in LANG_MAPPING else 'en'
+    except:
+        return 'en'
+
+def clean_and_count_words(text, custom_stop_words, num_results):
+    """
+    Clean text and count word frequencies
+    """
     # Detect language
     lang = detect_language(text)
     
+    # Get NLTK stopwords and combine with custom ones
+    nltk_stop_words = get_stopwords(lang)
+    all_stop_words = nltk_stop_words.union(custom_stop_words)
+    
     # Basic text cleaning
-    # Remove extra whitespace and convert to lowercase
     text = ' '.join(text.split()).lower()
-    
-    # Remove URLs
-    text = re.sub(r'http\S+|www\S+', '', text)
-    
-    # Remove numbers
-    text = re.sub(r'\d+', '', text)
+    text = re.sub(r'http\S+|www\S+', '', text)  # Remove URLs
+    text = re.sub(r'\d+', '', text)  # Remove numbers
     
     # Split into words and remove punctuation
     words = [word.strip(string.punctuation) for word in text.split()]
     
-    # Remove stop words and empty strings
-    words = [word for word in words if word and word not in stop_words]
+    # Filter words: remove stop words, empty strings, and short words
+    words = [word for word in words if word 
+            and word not in all_stop_words 
+            and len(word) > 2]  # Filter out very short words
     
     # Count words
     word_counts = Counter(words)
@@ -60,37 +93,41 @@ def clean_and_count_words(text, stop_words, num_results):
             'unique_words': unique_words,
             'avg_word_length': round(avg_word_length, 2)
         },
-        'language': lang
+        'language': lang,
+        'stopwords_used': len(all_stop_words)  # Added for information
     }
 
 def generate_csv(data):
+    """
+    Generate CSV output of analysis results
+    """
     output = StringIO()
     writer = csv.writer(output)
     
-    # Write headers
+    # Write headers and data
     writer.writerow(['Word', 'Frequency'])
-    
-    # Write word frequency data
     for word, freq in data['word_frequency'].items():
         writer.writerow([word, freq])
     
     # Write statistics
-    writer.writerow([])  # Empty row for separation
+    writer.writerow([])
     writer.writerow(['Statistics', ''])
     writer.writerow(['Total Words', data['statistics']['total_words']])
     writer.writerow(['Unique Words', data['statistics']['unique_words']])
     writer.writerow(['Average Word Length', data['statistics']['avg_word_length']])
+    writer.writerow(['Language', data['language'].upper()])
+    writer.writerow(['Stopwords Used', data['stopwords_used']])
     
     return output.getvalue()
 
 @app.route('/api/analyze', methods=['POST'])
 def analyze_url():
     try:
-        # Get data from request
+        # Get request data
         data = request.get_json()
         url = data.get('url')
-        num_results = data.get('numResults', 10)  # Default to 10 if not specified
-        custom_stop_words = set(data.get('stopWords', []))  # Get custom stop words
+        num_results = data.get('numResults', 10)
+        custom_stop_words = set(data.get('stopWords', []))
         
         # Validate URL
         if not url:
@@ -99,28 +136,24 @@ def analyze_url():
                 'error': 'URL is required'
             }), 400
         
-        # Fetch webpage
-        response = requests.get(url)
-        response.raise_for_status()  # Raise exception for bad status codes
+        # Fetch webpage with timeout
+        response = requests.get(url, timeout=10)
+        response.raise_for_status()
         
         # Parse HTML
         soup = BeautifulSoup(response.text, 'html.parser')
         
-        # Remove scripts, styles, and other unwanted elements
+        # Remove unwanted elements
         for element in soup(['script', 'style', 'meta', 'noscript', 'header', 'footer']):
             element.decompose()
             
         # Get text content
         text = soup.get_text()
         
-        # Detect language and get appropriate stop words
-        lang = detect_language(text)
-        stop_words = STOP_WORDS.get(lang, STOP_WORDS['en']).union(custom_stop_words)
-        
         # Analyze text
-        analysis = clean_and_count_words(text, stop_words, num_results)
+        analysis = clean_and_count_words(text, custom_stop_words, num_results)
         
-        # Generate CSV for export
+        # Generate CSV
         csv_data = generate_csv(analysis)
         
         return jsonify({
@@ -143,12 +176,19 @@ def analyze_url():
             'error': f'Analysis failed: {str(e)}'
         }), 500
 
-# Test endpoint
-@app.route('/api/test', methods=['GET'])
-def test():
+@app.route('/api/supported-languages', methods=['GET'])
+def get_supported_languages():
+    """
+    Return list of supported languages for stopwords
+    """
     return jsonify({
-        'message': 'Backend is working!'
+        'success': True,
+        'data': {
+            'languages': list(LANG_MAPPING.keys()),
+            'current_default': 'english'
+        }
     })
 
 if __name__ == '__main__':
     app.run(debug=True)
+

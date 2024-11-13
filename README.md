@@ -1,8 +1,7 @@
 # Word Frequency Analyzer
 
-A full-stack web application that analyzes word frequencies from any webpage. This project was developed as part of the ExpertRec software engineering internship assignment, featuring a Flask backend for text processing and a modern React frontend for visualization.
+A full-stack web application that analyzes word frequencies from any webpage. This project features a Flask backend for text processing and a modern React frontend for visualization.
 
-![Word Frequency Analyzer Screenshot]
 
 ## 🎯 Objective
 
@@ -162,18 +161,6 @@ The application can be configured through environment variables:
 - Support for PDF and document analysis
 - Implement caching for frequently analyzed URLs
 
-## 📜 License
-
-Distributed under the MIT License. See `LICENSE` for more information.
-
-## 👥 Authors
-
-- Your Name - Initial work - [YourGitHub](https://github.com/yourusername)
-
-## 🙏 Acknowledgments
-
-- ExpertRec for the project requirements
-- Contributors who have participated in this project
 
 ## ✍️ Notes
 
